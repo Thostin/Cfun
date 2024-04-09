@@ -10,6 +10,8 @@
 #include "../defs/defs.h"
 #endif
 
+#define next(node) node = node->next
+
 typedef struct btree btree_t;
 typedef struct btree *btreeptr_t;
 
@@ -176,6 +178,12 @@ void freebtree(btreeptr_t *root) {
     __freebtree(root);
 }
 
+void unlocked_freebtree(btreeptr_t root) {
+  unlocked_freebtree(root->left);
+  unlocked_freebtree(root->right);
+  free(root);
+}
+
 // uses memcmp
 // Stores node address to *ret
 err_t findbtree(btreeptr_t root, void *data, size_t size, btreeptr_t *ret) {
@@ -192,18 +200,18 @@ err_t findbtree(btreeptr_t root, void *data, size_t size, btreeptr_t *ret) {
 
     _compare_ = __builtin_memcmp(data, node->data, size);
     if (0 == _compare_) {
-      printf("EQUAL\n");
+      // printf("EQUAL\n");
       *ret = node;
       return EXIT_SUCCESS;
     }
 
     if (_compare_ > 0) {
-      printf("RIGHT\n");
+      // printf("RIGHT\n");
       if (nullptr == node->right)
         return EXIT_FAILURE_NOT_FOUND;
       node = node->right;
     } else {
-      printf("LEFT\n");
+      // printf("LEFT\n");
       if (nullptr == node->left)
         return EXIT_FAILURE_NOT_FOUND;
 
@@ -227,19 +235,19 @@ err_t ffindbtree(btreeptr_t root, void *data, size_t size, btreeptr_t *ret,
 
     _compare_ = cmp(data, node->data, size);
     if (0 == _compare_) {
-      printf("EQUAL\n");
+      // printf("EQUAL\n");
       *ret = node;
       return EXIT_SUCCESS;
     }
 
     if (_compare_ > 0) {
-      printf("RIGHT\n");
+      // printf("RIGHT\n");
       if (nullptr == node->right)
         return EXIT_FAILURE_NOT_FOUND;
       node = node->right;
 
     } else {
-      printf("LEFT\n");
+      // printf("LEFT\n");
       if (nullptr == node->left)
         return EXIT_FAILURE_NOT_FOUND;
 
@@ -248,35 +256,120 @@ err_t ffindbtree(btreeptr_t root, void *data, size_t size, btreeptr_t *ret,
   }
 }
 
-static listptr_t __arrbtree_root = nullptr;
+static listptr_t __arrbtree_node = nullptr;
 static size_t __arrbtree_len = 0;
 
-static err_t __arrbtree(btreeptr_t node) {
-  if (nullptr == node)
+static inline err_t __arrbtree(btreeptr_t node) {
+  if (nullptr == node) {
+    // printf("nullptr node\n");
     return EXIT_SUCCESS;
-
-  __arrbtree(node->left);
+  }
+  // printf("HERE\n");
+  if (EXIT_SUCCESS != __arrbtree(node->left))
+    return EXIT_FAILURE;
 
   if (nullptr != node->data) {
     ++__arrbtree_len;
+    pushl(__arrbtree_node, &(node->data), 8);
+    next(__arrbtree_node);
   } else {
-    freel(&__arrbtree_root);
+    // printf("NULL_POINTER\n");
     return EXIT_FAILURE;
   }
 
-  __arrbtree(node->right);
+  if (EXIT_SUCCESS != __arrbtree(node->right))
+    return EXIT_FAILURE;
 
   return EXIT_SUCCESS;
 }
 
-err_t arrbtree(void **dst, btreeptr_t *node) { return EXIT_SUCCESS; }
+// Transforma dst en un arreglo de punteros a los datos del árbol binario.
+// Es fácil acceder a los punteros que apuntan a las ramaas inferiores del
+// árbol, simplemete hay que mirar cómo está declarada la estructura
+err_t arrbtree(void **dst, btreeptr_t node, size_t *len) {
+  // printf("__ARRBTREE_LEN BEFOREHAND: %ld\n", __arrbtree_len);
+  list_t root; // Esta variable es para hackear las funciones que hice, estoy
+               // desperdiciando 16 bytes de memoria
 
+  err_t ret = EXIT_SUCCESS;
+
+  __arrbtree_node = &root;
+  root.data = (void *)0x1; // Make sure data pointer is not nullptr
+
+  if (EXIT_FAILURE == __arrbtree(node)) {
+    freel(&(root.next));
+    goto err;
+  }
+
+  *dst = malloc(8 * __arrbtree_len);
+
+  if (nullptr == *dst)
+    goto err;
+
+  if (EXIT_SUCCESS != compactl(root.next, *dst, 8)) {
+    free(*dst);
+    *dst = nullptr;
+    goto err;
+  }
+  *len = __arrbtree_len;
+
+  /*
+  printf("SEE IF IT WORKS:\n");
+  printf("__arrbtree_len = %ld\n", __arrbtree_len);
+
+  type **arr = (type **)*dst;
+
+  for (int i = 0; i < __arrbtree_len; ++i) {
+    printf("%ld ", *(arr[i]));
+  }
+  putchar(10);
+  */
+  // Este paso es muy importante
+  goto success;
+err:
+  ret = EXIT_FAILURE;
+success:
+  freel(&(root.next));
+  __arrbtree_len = 0;
+  __arrbtree_node = nullptr;
+
+  return ret;
+}
+
+static inline btreeptr_t __frehashbtree(btreeptr_t *arr, size_t len) {
+  switch (len) {
+  case 0:
+    return nullptr;
+  case 1:
+    return *arr;
+    break;
+  case 2:
+    if (comp((arr[0])->data, (arr[1])->data) > 0) {
+      (*arr)->right = arr[1];
+    } else {
+      (*arr)->left = arr[0];
+    }
+    return *arr;
+  case 3:
+    (*arr)->left = __frehashbtree(arr, len / 2);
+  }
+}
+
+err_t frehashbtree(btreeptr_t *root) {
+  void *arr;
+  size_t len;
+  arrbtree(&arr, *root, &len);
+
+  unlocked_freebtree(*root);
+
+  return EXIT_SUCCESS;
+}
+/*********************************************************************************/
 /*
-typedef long type;
-
 long comp(const void *a, const void *b, size_t size) {
   return *(long *)a - *(long *)b;
 }
+typedef long type;
 
 // Para probar si las funciones funcionan xd
 int main(void) {
@@ -314,7 +407,74 @@ int main(void) {
     else
       printf("FOUND\n");
   }
+
+  while (getchar() != '\n')
+    ;
+
+  void *dst;
+  size_t size;
+  size_t aux2;
+
+  list_t prueba;
+  prueba.data = (void *)0x1;
+  listptr_t pr = &prueba;
+
+  for (int i = 0; i < 10; ++i) {
+    printf("prueba: ");
+    if (!scanf(" %ld", &aux))
+      return EXIT_FAILURE;
+    pushl(pr, &aux, sizeof(type));
+    next(pr);
+  }
+
+  dst = malloc(80);
+  compactl(prueba.next, dst, sizeof(type));
+
+  for (int i = 0; i < 10; ++i) {
+    printf("%ld ", ((type *)dst)[i]);
+  }
+  free(dst);
+
+  while (1) {
+    printf(">  ");
+    if (!scanf(" %ld", &aux))
+      return 0;
+
+    printf("op: ");
+    if (!scanf(" %ld", &aux2))
+      return 0;
+
+    switch (aux2) {
+    case 1:
+      if (finsbtree(&root, &aux, sizeof(type), comp))
+        printf("MMMMMMM\n");
+      break;
+
+    case 2:
+      if (ffindbtree(root, &aux, sizeof(type), &ret, comp))
+        printf("MMMMMMM\n");
+      else
+        printf("FOUND\n");
+      break;
+
+    case 3:
+      if (EXIT_SUCCESS != arrbtree(&dst, root, &size)) {
+        printf("FAILED TO COMPACT BINARY TREE\n");
+      } else {
+        for (int i = 0; i < size; ++i) {
+          printf("%ld ", *(((type **)dst)[i]));
+        }
+        putchar(10);
+        free(dst);
+      }
+      break;
+    default:
+      goto ex;
+    }
+  }
+
+ex:
+  freebtree(&root);
   return 0;
 }
-
 */

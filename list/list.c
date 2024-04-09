@@ -1,8 +1,15 @@
 #include "../defs/defs.h"
-#include "structs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+typedef struct list list_t;
+typedef struct list *listptr_t;
+
+struct list {
+  listptr_t next;
+  void *data;
+};
 
 // Toma como parámetro una dirección de memoria de donde se
 // guardará el puntero al inicio de la lista
@@ -148,11 +155,14 @@ err_t ffindl(listptr_t node, const void *target, listptr_t *const ret,
 // to an unknown fixed size array
 // dst should be allocated before calling compactl
 err_t compactl(listptr_t node, void *dst, const size_t size) {
+  int z = 0;
   while (node && node->data) {
+    ++z;
     memcpy(dst, node->data, size);
     node = node->next;
     dst = (char *)dst + size;
   }
+  printf("SIZE OF LIST: %d\n", z);
   return EXIT_SUCCESS;
 }
 
